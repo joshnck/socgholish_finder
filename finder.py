@@ -19,6 +19,8 @@ indicators = [
     ("V2luZG93cw","VjJsdVpHOTNjdz09",r".W.i.n.d.o.w.s."),
     r"\w{2}\s*=\s*document\.referrer;\s*var\s\w{2}\s*=\s*window\.location\.href;var\s*\w{2}\s*=\s*navigator\.userAgent;",
     r"\w{2}\s*=\s*document\.createElement\W*script\W*\s*\w{2}\.type\s*=\s*\W*[a-zA-Z\/]*\W*\s*\w{2}\.async\s*=\s*(?:true|false);\s*\w{2}\.src\s*=\s*\w{2}"
+    # TODO: REGEX FOR THIS:
+    # load_template( strrev( "//:piz" ) . locate_template( "[REDACTED].template" ) . "#template", true );
 ]
 
 def GetWebsite(url, headers):

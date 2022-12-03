@@ -18,9 +18,8 @@ from urllib.parse import urljoin
 indicators = [
     ("V2luZG93cw","VjJsdVpHOTNjdz09",r".W.i.n.d.o.w.s."),
     r"\w{2}\s*=\s*document\.referrer;\s*var\s\w{2}\s*=\s*window\.location\.href;var\s*\w{2}\s*=\s*navigator\.userAgent;",
-    r"\w{2}\s*=\s*document\.createElement\W*script\W*\s*\w{2}\.type\s*=\s*\W*[a-zA-Z\/]*\W*\s*\w{2}\.async\s*=\s*(?:true|false);\s*\w{2}\.src\s*=\s*\w{2}"
-    # TODO: REGEX FOR THIS:
-    # load_template( strrev( "//:piz" ) . locate_template( "[REDACTED].template" ) . "#template", true );
+    r"\w{2}\s*=\s*document\.createElement\W*script\W*\s*\w{2}\.type\s*=\s*\W*[a-zA-Z\/]*\W*\s*\w{2}\.async\s*=\s*(?:true|false);\s*\w{2}\.src\s*=\s*\w{2}",
+    r"(0x).*(\['push'\]){1}\(.0x.*\['shift'\]\(\)\)\;"
 ]
 
 def GetWebsite(url, headers):
@@ -34,10 +33,10 @@ def GetWebsite(url, headers):
                 url=url[1:]
             try:
                 url1 = "https://"+url
-                print("trying: "+url1)
+                #print("trying: "+url1)
                 r = requests.get(url1, headers=headers)
             except:
-                print("trying http://"+url)
+                #print("trying http://"+url)
                 url2 = "http://"+url
                 r = requests.get(url2, headers=headers)
     except: # Connection failed. This could be because of a variety of issues - maybe more verbose error messages are needed here
@@ -52,7 +51,7 @@ def ParseWebsite(url, ua):
         return scripts
     else: # else we need to parse
         soup = BeautifulSoup(r.content, 'html.parser')
-        for s in soup.findAll('script'): # find strings that contain 'script' - may yield FPs!
+        for s in soup.findAll('script'): # find strings that contain 'script'
             src = s.get('src')
             if src is None: # identify .js files directly in the home folder (most samples found here)
                 scripts.append((url,s.string))
@@ -105,7 +104,10 @@ def Stage2Url(script): # Only works for the known base64 SocGholish script
 def scan(url,ua):
     print("Scanning website {} in progress...".format(url))
     scripts = ParseWebsite(url, ua)
-    sg = FindSocGholish(scripts)
+    try:
+        sg = FindSocGholish(scripts)
+    except:
+        sg = []
     if sg != []:
         stage2 = []
         for e in sg:
@@ -113,7 +115,19 @@ def scan(url,ua):
             print("Potential injection script (matched {:d} out of {:d} indicators):".format(e[1],len(indicators)))
             print(e[0][1])
             print("")
-            stage2.append(urljoin(url,Stage2Url(e[0])))
+            f = open("findings.txt", "a")
+            f.write("Found potential SocGholish on {}!".format(e[0][0]))
+            f.write("\n")
+            f.write("Potential injection script (matched {:d} out of {:d} indicators):".format(e[1],len(indicators)))
+            f.write("\n")
+            f.write(e[0][1])
+            f.write("\n")
+            f.write("-----------------------------------------------------------------------------------------------\n")
+            f.close()
+            try:
+                stage2.append(urljoin(url,Stage2Url(e[0])))
+            except:
+                continue
         print("Trying to extract stage 2 urls...")
         print("")
         print("Potential Stage 2 URLs:")
@@ -129,6 +143,7 @@ def scan(url,ua):
         print("Couldn't find any SocGholish payload :(")
 
 def main():
+    print("Running SocGholish Finder")
     parser = argparse.ArgumentParser(description='SocGholish finder')
     parser.add_argument("-url", type=str, help="URL to check")
     parser.add_argument("-ua", "--user-agent",type=str, help="Specify User-Agent to use with the request")
@@ -148,12 +163,12 @@ def main():
                 url = str(row[0])
                 scan(url,ua)
 
-    if( not args.filename and args.url):
+    if( (args.filename == None) and (args.url)):
         print("Scanning url " + args.url)
         scan(args.url,ua)
 
 
-    if( (args.filename == "") & (args.url == "")):
+    if( (args.filename == None) & (args.url == None)):
         print("Must input a URL or CSV file of domains")
         exit()
 

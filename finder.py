@@ -12,6 +12,8 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from db import get_db_session, Source, Indicator
+
 
 # Configure logging
 def setup_logging(log_level=logging.INFO):
@@ -248,21 +250,48 @@ def ParseWebsite(url, ua):
     
     return scripts
 
-def FindSocGholish(scripts):
+def FindSocGholish(scripts, source_url):
     potential_sg = []
-    for s in scripts:
-        hits = 0
-        for i in indicators:
-            if type(i) is tuple:
-                for regex in i:
-                    if re.search(regex,s[1],re.I): # This is a little computationally heavy - if we precompile the Rex we can save some effort
-                        hits = hits + 1
-            else:
-                if re.search(i,s[1],re.I):
-                    hits = hits + 1
-        if hits > 0:
-            potential_sg.append((s,hits))
-    return potential_sg
+    session = get_db_session()
+    
+    try:
+        source, _ = Source.get_or_create(session, url=source_url)
+        
+        for s in scripts:
+            script_url, script_content = s
+            if not script_content:
+                continue
+                
+            for i, indicator in enumerate(indicators):
+                if isinstance(indicator, tuple):
+                    for regex in indicator:
+                        if re.search(regex, script_content, re.I):
+                            Indicator.create_from_snippet(
+                                session=session,
+                                source=source,
+                                snippet_text=script_content,
+                                detection_method=f"indicator_{i}",
+                                stage=1
+                            )
+                else:
+                    if re.search(indicator, script_content, re.I):
+                        Indicator.create_from_snippet(
+                            session=session,
+                            source=source,
+                            snippet_text=script_content,
+                            detection_method=f"indicator_{i}",
+                            stage=1
+                        )
+        
+        session.commit()
+        return potential_sg
+        
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Database error: {str(e)}", exc_info=True)
+        return []
+    finally:
+        session.close()
 
 def Stage2Url(script): # Only works for the known base64 SocGholish script
     src = re.search(r"\w{2}\.src\s*=\s*\w{2}\(\W*'(.*?)'\W*\)",script[1],re.I)
@@ -282,113 +311,152 @@ def Stage2Url(script): # Only works for the known base64 SocGholish script
             return d
     return None
 
-def scan(url,ua):
-    print("Scanning website {} in progress...".format(url))
-    scripts = ParseWebsite(url, ua)
-    sg = FindSocGholish(scripts)
-    if sg != []:
+def scan(url, ua, mark_benign=False):
+    """Scan a website for SocGholish indicators.
+    
+    Args:
+        url (str): The URL to scan
+        ua (str): User-Agent string to use for requests
+        mark_benign (bool): If True, mark the site as benign in the database
+        
+    Returns:
+        bool: True if indicators were found, False otherwise
+    """
+    logger.info(f"Scanning website {url}")
+    session = get_db_session()
+    hit = False
+    
+    try:
+        # Get or create source and update last_checked
+        source, _ = Source.get_or_create(session, url=url)
+        source.last_checked = datetime.utcnow()
+        
+        if mark_benign:
+            logger.info(f"Marking {url} as benign")
+            source.is_benign = True
+            session.commit()
+            return False
+            
+        # If site is marked as benign, skip scanning
+        if source.is_benign is True:
+            logger.debug(f"Skipping known benign site: {url}")
+            return False
+            
+        scripts = ParseWebsite(url, ua)
+        sg = FindSocGholish(scripts, url)
+        
+        if not sg:  # No indicators found
+            logger.debug(f"No indicators found on {url}")
+            source.is_benign = True  # Mark as benign if no indicators found
+            session.commit()
+            return False
+            
+        # Process found indicators
         stage2 = []
         for e in sg:
-            print("Found potential SocGholish on {}!".format(e[0][0]))
-            print("Potential injection script (matched {:d} out of {:d} indicators):".format(e[1],len(indicators)))
-            print(e[0][1])
-            print("")
-            stage2.append(urljoin(url,Stage2Url(e[0])))
-        print("Trying to extract stage 2 urls...")
-        print("")
-        print("Potential Stage 2 URLs:")
-        for u in stage2:
-            if "report" in u:
-                print(u)
-            else:
-                response = GetWebsite(urljoin(url,u),headers={'Host': url.split('/')[2], 'User-Agent': ua, 'referer': url})
-                s2url = Stage2Url(response.content)
-                if s2url is not None:
-                    print(s2url)             
-    else:
-        hit = False
+            logger.warning(f"Found potential SocGholish on {e[0][0]} (matched {e[1]} out of {len(indicators)} indicators)")
+            stage2_url = urljoin(url, Stage2Url(e[0]))
+            if "report" in stage2_url:
+                stage2.append(stage2_url)
+                
+                # Check stage 2 URLs
+                try:
+                    response = GetWebsite(
+                        urljoin(url, stage2_url),
+                        headers={
+                            'Host': url.split('/')[2],
+                            'User-Agent': ua,
+                            'referer': url
+                        }
+                    )
+                    s2url = Stage2Url(response.content)
+                    if s2url is not None:
+                        logger.warning(f"Found stage 2 URL: {s2url}")
+                        hit = True
+                except Exception as e:
+                    logger.error(f"Error checking stage 2 URL {stage2_url}: {str(e)}")
+        
+        # Check for suspicious script URLs
         for script in scripts:
-            if re.match(r"[A-Za-z0-9]{32,}", script[0].split("/")[-1]) != None:
-                r = GetWebsite(script[0], headers={'User-Agent': ua})
-                if r.content == b'':
-                    hit = True
-                    print("Found potential SocGholish on {}!".format(url))
-                    print("Potential injection script (possible false-positive due to a weak indicator): {}".format(script[0]))
-                    print("")
-        if hit == False:
-            print("Couldn't find any SocGholish payload :(")
+            script_url = script[0] if isinstance(script, (list, tuple)) else script
+            if re.match(r"[A-Za-z0-9]{32,}", script_url.split("/")[-1]) is not None:
+                try:
+                    r = GetWebsite(script_url, headers={'User-Agent': ua})
+                    if r.content == b'':
+                        logger.warning(f"Empty response from suspicious script: {script_url}")
+                        hit = True
+                except Exception as e:
+                    logger.error(f"Error checking script {script_url}: {str(e)}")
+        
+        # Update source status based on findings
+        source.is_benign = not (bool(sg) or hit)
+        session.commit()
+        
+        # Log findings
+        if stage2:
+            logger.warning(f"Found {len(stage2)} potential stage 2 URLs")
+            for u in stage2:
+                logger.warning(f"Stage 2 URL: {u}")
+        
+        if hit:
+            logger.warning(f"Found potential SocGholish indicators on {url}")
+        else:
+            logger.info(f"No SocGholish payload found on {url}")
+            
+        return hit or bool(sg)
+        
+    except Exception as e:
+        logger.error(f"Error scanning {url}: {str(e)}", exc_info=True)
+        session.rollback()
+        return False
+    finally:
+        session.close()
 
 def main():
     parser = argparse.ArgumentParser(description='SocGholish finder')
     parser.add_argument("-url", type=str, help="URL to check")
-    parser.add_argument("-ua", "--user-agent", type=str, help="Specify User-Agent to use with the request")
+    parser.add_argument("-ua", "--user-agent", type=str, 
+                      default="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                      help="Specify User-Agent to use with the request")
     parser.add_argument("-f", "--filename", type=str, help="CSV file of domains to check")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug output")
+    parser.add_argument("--mark-benign", action="store_true", 
+                       help="Mark the specified URL as benign in the database")
     
     args = parser.parse_args()
-    
-    # Configure logging level based on arguments
-    log_level = logging.DEBUG if args.debug else (logging.INFO if args.verbose else logging.WARNING)
-    setup_logging(log_level)
-    
-    logger.info("=== Starting SocGholish Finder ===")
-    logger.info(f"Command line arguments: {sys.argv}")
-    
-    # Set user agent
-    ua = args.user_agent or 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36'
-    
-    try:
-        if args.filename:
-            logger.info(f"Starting batch scan from file: {args.filename}")
-            try:
-                with open(args.filename, 'r', encoding='utf-8-sig') as csvFile:
-                    raw_file = csv.reader(csvFile)
-                    for row in raw_file:
-                        if not row or not row[0].strip():
-                            continue
-                        url = str(row[0]).strip()
-                        logger.info(f"Processing URL from file: {url}")
-                        try:
-                            scan(url, ua)
-                        except Exception as e:
-                            logger.error(f"Error processing URL {url}: {str(e)}", exc_info=True)
-                            continue
-            except FileNotFoundError:
-                logger.error(f"File not found: {args.filename}")
-                return 1
-            except Exception as e:
-                logger.critical(f"Error reading file {args.filename}: {str(e)}", exc_info=True)
-                return 1
-                
-        elif args.url:
-            logger.info(f"Starting scan for URL: {args.url}")
-            try:
-                scan(args.url, ua)
-            except Exception as e:
-                logger.critical(f"Error scanning URL {args.url}: {str(e)}", exc_info=True)
-                return 1
-                
-        else:
-            logger.error("No URL or filename provided")
-            parser.print_help()
-            return 1
-            
-    except KeyboardInterrupt:
-        logger.info("Scan interrupted by user")
-        return 130  # Standard exit code for Ctrl+C
-        
-    except Exception as e:
-        logger.critical(f"Unexpected error: {str(e)}", exc_info=True)
-        return 1
-        
-    logger.info("=== Scan completed successfully ===")
-    return 0
 
+    # Set up logging
+    log_level = logging.DEBUG if args.debug else (logging.INFO if args.verbose else logging.WARNING)
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.handlers.RotatingFileHandler(
+                'socgholish_scan.log',
+                maxBytes=5*1024*1024,  # 5MB
+                backupCount=3
+            )
+        ]
+    )
+
+    if args.url:
+        scan(args.url, args.user_agent, mark_benign=args.mark_benign)
+    elif args.filename:
+        # Process CSV file
+        try:
+            with open(args.filename, 'r') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if row:  # Skip empty lines
+                        url = row[0].strip()
+                        if url:  # Skip empty URLs
+                            scan(url, args.user_agent)
+        except Exception as e:
+            logger.error(f"Error processing file {args.filename}: {str(e)}")
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception as e:
-        logger.critical(f"Unhandled exception: {str(e)}", exc_info=True)
-        sys.exit(1)
+    main()

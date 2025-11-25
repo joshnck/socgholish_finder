@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}SocGholish Indicators{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-button.active { 
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">SocGholish Indicators Dashboard</h1>
+        
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-gray-500 text-sm font-medium">Total Indicators</h3>
+                <p class="text-3xl font-bold" id="total-indicators">{{ stats.total_indicators }}</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-gray-500 text-sm font-medium">Malicious Sources</h3>
+                <p class="text-3xl font-bold text-red-600" id="malicious-sources">{{ stats.malicious_sources }}</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-gray-500 text-sm font-medium">Benign Sources</h3>
+                <p class="text-3xl font-bold text-green-600" id="benign-sources">{{ stats.benign_sources }}</p>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-gray-500 text-sm font-medium">Unanalyzed</h3>
+                <p class="text-3xl font-bold text-yellow-600" id="unanalyzed">{{ stats.unanalyzed }}</p>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="mb-6 border-b border-gray-200">
+            <ul class="flex flex-wrap -mb-px" id="tabs">
+                <li class="mr-2">
+                    <button class="tab-button active inline-block p-4 border-b-2 rounded-t-lg" data-tab="indicators">Indicators</button>
+                </li>
+                <li class="mr-2">
+                    <button class="tab-button inline-block p-4 border-b-2 rounded-t-lg" data-tab="sources">Sources</button>
+                </li>
+                <li class="mr-2">
+                    <button class="tab-button inline-block p-4 border-b-2 rounded-t-lg" data-tab="benign">Benign Sites</button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Tab Contents -->
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Indicator Detail Modal -->
+    <div id="indicator-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg w-11/12 max-w-4xl max-h-[90vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-xl font-semibold">Indicator Details</h3>
+                <button id="close-modal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto flex-grow">
+                <div class="mb-6">
+                    <h4 class="text-sm font-medium text-gray-500">Source URL</h4>
+                    <p id="modal-source" class="mt-1 break-all"></p>
+                </div>
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-sm font-medium text-gray-500">Snippet</h4>
+                        <div class="flex items-center space-x-2">
+                            <span id="modal-stage" class="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800"></span>
+                            <span id="modal-method" class="px-2 py-1 text-xs rounded bg-purple-100 text-purple-800"></span>
+                        </div>
+                    </div>
+                    <pre id="modal-snippet" class="whitespace-pre-wrap break-all max-h-96 overflow-y-auto"></pre>
+                </div>
+                <div class="mb-6">
+                    <div class="flex items-center justify-between">
+                        <label for="analysis-notes" class="block text-sm font-medium text-gray-700">Analysis Notes</label>
+                        <div class="flex items-center space-x-2">
+                            <span id="saved-status" class="text-sm text-green-600 hidden">Saved!</span>
+                            <button id="save-notes" class="px-3 py-1 bg-blue-600 text-white rounded text-sm">Save Notes</button>
+                        </div>
+                    </div>
+                    <textarea id="analysis-notes" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 h-32"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize variables
+        let currentTab = 'indicators';
+        let currentPage = { indicators: 1, sources: 1, benign: 1 };
+        let currentIndicatorId = null;
+        
+        // DOM Elements
+        const tabs = document.querySelectorAll('.tab-button');
+        const tabContents = document.querySelectorAll('.tab-content');
+        const indicatorModal = document.getElementById('indicator-modal');
+        const closeModal = document.getElementById('close-modal');
+        const saveNotesBtn = document.getElementById('save-notes');
+        const analysisNotes = document.getElementById('analysis-notes');
+        const savedStatus = document.getElementById('saved-status');
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Tab switching
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabId = tab.getAttribute('data-tab');
+                    switchTab(tabId);
+                });
+            });
+
+            // Modal close button
+            closeModal.addEventListener('click', () => {
+                indicatorModal.classList.add('hidden');
+            });
+
+            // Save notes button
+            saveNotesBtn.addEventListener('click', () => {
+                if (currentIndicatorId && analysisNotes) {
+                    updateAnalysisNotes(currentIndicatorId, analysisNotes.value);
+                }
+            });
+
+            // Pagination event listeners
+            setupPagination();
+            
+            // Load initial data
+            loadIndicators();
+            loadSources();
+            loadBenignSites();
+            updateStats();
+        });
+
+        // Setup pagination event listeners
+        function setupPagination() {
+            document.getElementById('indicators-prev').addEventListener('click', () => {
+                if (currentPage.indicators > 1) {
+                    currentPage.indicators--;
+                    loadIndicators();
+                }
+            });
+
+            document.getElementById('indicators-next').addEventListener('click', () => {
+                currentPage.indicators++;
+                loadIndicators();
+            });
+
+            document.getElementById('sources-prev').addEventListener('click', () => {
+                if (currentPage.sources > 1) {
+                    currentPage.sources--;
+                    loadSources();
+                }
+            });
+
+            document.getElementById('sources-next').addEventListener('click', () => {
+                currentPage.sources++;
+                loadSources();
+            });
+
+            document.getElementById('benign-prev').addEventListener('click', () => {
+                if (currentPage.benign > 1) {
+                    currentPage.benign--;
+                    loadBenignSites();
+                }
+            });
+
+            document.getElementById('benign-next').addEventListener('click', () => {
+                currentPage.benign++;
+                loadBenignSites();
+            });
+        }
+
+        // Switch between tabs
+        function switchTab(tabId) {
+            // Update active tab
+            tabs.forEach(tab => {
+                if (tab.getAttribute('data-tab') === tabId) {
+                    tab.classList.add('active');
+                } else {
+                    tab.classList.remove('active');
+                }
+            });
+
+            // Show active tab content
+            tabContents.forEach(content => {
+                if (content.id === tabId) {
+                    content.classList.add('active');
+                } else {
+                    content.classList.remove('active');
+                }
+            });
+
+            currentTab = tabId;
+        }
+
+        // Update dashboard stats
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                
+                // Update stats from the API
+                document.getElementById('total-indicators').textContent = data.total_indicators || '0';
+                document.getElementById('malicious-sources').textContent = data.malicious_sources || '0';
+                document.getElementById('benign-sources').textContent = data.benign_sources || '0';
+                document.getElementById('unanalyzed').textContent = data.unanalyzed || '0';
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }
+
+        // Load indicators
+        async function loadIndicators() {
+            try {
+                const response = await fetch(`/api/indicators?page=${currentPage.indicators}&analyzed=false`);
+                const data = await response.json();
+                
+                const indicatorsList = document.getElementById('indicators-list');
+                indicatorsList.innerHTML = '';
+                
+                data.indicators.forEach(indicator => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 max-w-xs truncate" title="${escapeHtml(indicator.snippet)}">
+                            ${escapeHtml(indicator.snippet)}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <a href="${indicator.source_url}" target="_blank" class="text-blue-600 hover:underline">${new URL(indicator.source_url).hostname}</a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(indicator.first_seen).toLocaleString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 py-1 text-xs rounded ${indicator.is_analyzed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                ${indicator.is_analyzed ? 'Analyzed' : 'Pending'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="viewIndicator(${indicator.id})" class="text-blue-600 hover:text-blue-900 mr-3">View</button>
+                            <button onclick="markAsAnalyzed(${indicator.id}, this)" class="text-green-600 hover:text-green-900">Mark Analyzed</button>
+                        </td>
+                    `;
+                    indicatorsList.appendChild(row);
+                });
+                
+                // Update pagination
+                updatePagination('indicators', data);
+                
+            } catch (error) {
+                console.error('Error loading indicators:', error);
+            }
+        }
+
+        // Load sources
+        async function loadSources() {
+            try {
+                const response = await fetch(`/api/sources?page=${currentPage.sources}&benign=false`);
+                const data = await response.json();
+                
+                const sourcesList = document.getElementById('sources-list');
+                sourcesList.innerHTML = '';
+                
+                data.sources.forEach(source => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 max-w-xs truncate" title="${source.url}">
+                            <a href="${source.url}" target="_blank" class="text-blue-600 hover:underline">${source.url}</a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${source.domain}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(source.first_seen).toLocaleString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded">
+                                ${source.indicator_count} indicators
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="markAsBenign(${source.id}, true)" class="text-green-600 hover:text-green-900">
+                                Mark as Benign
+                            </button>
+                        </td>
+                    `;
+                    sourcesList.appendChild(row);
+                });
+                
+                // Update pagination
+                updatePagination('sources', data);
+                
+            } catch (error) {
+                console.error('Error loading sources:', error);
+            }
+        }
+
+        // Load benign sites
+        async function loadBenignSites() {
+            try {
+                const response = await fetch(`/api/sources?page=${currentPage.benign}&benign=true`);
+                const data = await response.json();
+                
+                const benignList = document.getElementById('benign-list');
+                benignList.innerHTML = '';
+                
+                data.sources.forEach(source => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 max-w-xs truncate" title="${source.url}">
+                            <a href="${source.url}" target="_blank" class="text-blue-600 hover:underline">${source.url}</a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${source.domain}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(source.last_checked).toLocaleString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="markAsBenign(${source.id}, false)" class="text-red-600 hover:text-red-900">
+                                Mark as Suspicious
+                            </button>
+                        </td>
+                    `;
+                    benignList.appendChild(row);
+                });
+                
+                // Update pagination
+                updatePagination('benign', data);
+                
+            } catch (error) {
+                console.error('Error loading benign sites:', error);
+            }
+        }
+
+        // Update pagination UI
+        function updatePagination(type, data) {
+            const start = (currentPage[type] - 1) * 20 + 1;
+            const end = Math.min(currentPage[type] * 20, data.total);
+            
+            document.getElementById(`${type}-start`).textContent = start;
+            document.getElementById(`${type}-end`).textContent = end;
+            document.getElementById(`${type}-total`).textContent = data.total;
+            
+            document.getElementById(`${type}-prev`).disabled = currentPage[type] === 1;
+            document.getElementById(`${type}-next`).disabled = currentPage[type] >= data.pages;
+        }
+
+        // View indicator details
+        async function viewIndicator(id) {
+            try {
+                const response = await fetch(`/api/indicators/${id}`);
+                const indicator = await response.json();
+                
+                currentIndicatorId = id;
+                document.getElementById('modal-source').innerHTML = 
+                    `<a href="${indicator.source_url}" target="_blank" class="text-blue-600 hover:underline">${indicator.source_url}</a>`;
+                document.getElementById('modal-snippet').textContent = indicator.snippet;
+                document.getElementById('modal-stage').textContent = `Stage ${indicator.stage}`;
+                document.getElementById('modal-method').textContent = indicator.detection_method;
+                document.getElementById('analysis-notes').value = indicator.analysis_notes || '';
+                
+                // Show modal
+                indicatorModal.classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Error loading indicator:', error);
+                alert('Error loading indicator details');
+            }
+        }
+
+        // Mark indicator as analyzed
+        async function markAsAnalyzed(id, button) {
+            try {
+                const response = await fetch(`/api/indicators/${id}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ is_analyzed: true })
+                });
+                
+                if (response.ok) {
+                    // Update UI
+                    button.textContent = 'Analyzed';
+                    button.disabled = true;
+                    button.classList.remove('text-green-600', 'hover:text-green-900');
+                    button.classList.add('text-gray-400', 'cursor-not-allowed');
+                    
+                    // Update stats
+                    updateStats();
+                } else {
+                    throw new Error('Failed to update indicator');
+                }
+            } catch (error) {
+                console.error('Error marking as analyzed:', error);
+                alert('Error marking indicator as analyzed');
+            }
+        }
+
+        // Toggle source as benign/suspicious
+        async function markAsBenign(id, isBenign) {
+            try {
+                const response = await fetch(`/api/sources/${id}/toggle_benign`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (response.ok) {
+                    // Reload the appropriate list
+                    if (isBenign) {
+                        loadSources();
+                    } else {
+                        loadBenignSites();
+                    }
+                    // Update stats
+                    updateStats();
+                } else {
+                    throw new Error('Failed to update source');
+                }
+            } catch (error) {
+                console.error('Error updating source:', error);
+                alert('Error updating source status');
+            }
+        }
+
+        // Update analysis notes
+        async function updateAnalysisNotes(id, notes) {
+            try {
+                const response = await fetch(`/api/indicators/${id}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ analysis_notes: notes })
+                });
+                
+                if (response.ok) {
+                    // Show saved status
+                    savedStatus.classList.remove('hidden');
+                    setTimeout(() => {
+                        savedStatus.classList.add('hidden');
+                    }, 2000);
+                } else {
+                    throw new Error('Failed to update notes');
+                }
+            } catch (error) {
+                console.error('Error updating notes:', error);
+                alert('Error saving notes');
+            }
+        }
+
+        // Helper function to escape HTML
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Make functions available globally
+        window.viewIndicator = viewIndicator;
+        window.markAsAnalyzed = markAsAnalyzed;
+        window.markAsBenign = markAsBenign;
+    </script>
+</body>
+</html>

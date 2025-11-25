@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Indicators Tab Content -->
+<div id="indicators" class="tab-content active">
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Snippet</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Detected</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="indicators-list" class="bg-white divide-y divide-gray-200">
+                    <!-- Filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div class="px-6 py-4 flex justify-between items-center bg-white border-t border-gray-200">
+            <button id="indicators-prev" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Previous</button>
+            <span id="indicators-page-info" class="text-sm text-gray-700">Page 1</span>
+            <button id="indicators-next" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next</button>
+        </div>
+    </div>
+</div>
+
+<!-- Sources Tab Content -->
+<div id="sources" class="tab-content hidden">
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Seen</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sources-list" class="bg-white divide-y divide-gray-200">
+                    <!-- Filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div class="px-6 py-4 flex justify-between items-center bg-white border-t border-gray-200">
+            <button id="sources-prev" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Previous</button>
+            <span id="sources-page-info" class="text-sm text-gray-700">Page 1</span>
+            <button id="sources-next" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next</button>
+        </div>
+    </div>
+</div>
+
+<!-- Benign Sites Tab Content -->
+<div id="benign" class="tab-content hidden">
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Domain</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Checked</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="benign-list" class="bg-white divide-y divide-gray-200">
+                    <!-- Filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div class="px-6 py-4 flex justify-between items-center bg-white border-t border-gray-200">
+            <button id="benign-prev" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Previous</button>
+            <span id="benign-page-info" class="text-sm text-gray-700">Page 1</span>
+            <button id="benign-next" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Next</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
